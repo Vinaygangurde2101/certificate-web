@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 import Papa from 'papaparse';
 import * as XLSXModule from 'xlsx';
 const XLSX = XLSXModule.default || XLSXModule;
@@ -75,30 +76,54 @@ export const adminController = {
   // Admin Login
   async login(req, res) {
     try {
-      const { username, password } = req.body;
-      const expectedUser = process.env.ADMIN_USERNAME || 'admin';
-      const expectedPass = process.env.ADMIN_PASSWORD || 'Admin@SmartCert2026';
+      const { username, password } = req.body || {};
+      const inputUser = (username || '').trim();
+      const inputPass = (password || '').trim();
 
-      if (username !== expectedUser || password !== expectedPass) {
-        return res.status(401).json({
+      if (!inputUser || !inputPass) {
+        return res.status(400).json({
           success: false,
-          error: 'Invalid admin username or password.'
+          error: 'Please enter both username and password.'
         });
       }
 
+      // Read configured credentials, stripping any surrounding quotes and whitespace
+      const expectedUser = (process.env.ADMIN_USERNAME || 'admin').trim().replace(/^["']|["']$/g, '');
+      const expectedPass = (process.env.ADMIN_PASSWORD || 'Admin@SmartCert2026').trim().replace(/^["']|["']$/g, '');
+
+      // Case-insensitive username check
+      const isUserMatch = inputUser.toLowerCase() === expectedUser.toLowerCase();
+
+      // Password check supporting both plain text and bcrypt hash
+      let isPassMatch = false;
+      if (expectedPass.startsWith('$2a$') || expectedPass.startsWith('$2b$') || expectedPass.startsWith('$2y$')) {
+        isPassMatch = bcrypt.compareSync(inputPass, expectedPass);
+      } else {
+        isPassMatch = (inputPass === expectedPass);
+      }
+
+      if (!isUserMatch || !isPassMatch) {
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid admin username or password. Default username is "admin".'
+        });
+      }
+
+      const jwtSecret = process.env.JWT_SECRET || 'super_secret_jwt_key_smart_cert_allocation_portal_9988';
       const token = jwt.sign(
-        { username, role: 'admin' },
-        process.env.JWT_SECRET || 'fallback_secret',
-        { expiresIn: '24h' }
+        { username: inputUser, role: 'admin' },
+        jwtSecret,
+        { expiresIn: '7d' }
       );
 
       return res.json({
         success: true,
         token,
-        admin: { username }
+        admin: { username: inputUser }
       });
     } catch (err) {
-      return res.status(500).json({ success: false, error: err.message });
+      console.error('Admin login error:', err);
+      return res.status(500).json({ success: false, error: 'Authentication service encountered an error.' });
     }
   },
 

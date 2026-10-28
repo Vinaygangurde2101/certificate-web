@@ -28,8 +28,12 @@ export default function ParticipantPortal() {
 
   const handleVerify = async (e) => {
     e.preventDefault();
-    if (!name.trim() || !email.trim()) {
-      setErrorMsg('Please enter both your Full Name and registered Email Address.');
+    const cleanName = name.trim();
+    const cleanEmail = email.trim();
+    const cleanCode = accessCode.trim();
+
+    if (!cleanCode && (!cleanName || !cleanEmail)) {
+      setErrorMsg('Please enter both your Full Name and registered Email, or enter your Access Code.');
       return;
     }
 
@@ -38,14 +42,14 @@ export default function ParticipantPortal() {
 
     try {
       const data = await api.participant.verify({
-        name: name.trim(),
-        email: email.trim(),
-        accessCode: accessCode.trim()
+        name: cleanName,
+        email: cleanEmail,
+        accessCode: cleanCode
       });
       setVerifiedData(data);
       toast.success('Certificate credentials successfully verified!');
     } catch (err) {
-      setErrorMsg(err.message || 'No active certificate found matching the provided Name and Email address.');
+      setErrorMsg(err.message || 'No active certificate found matching the provided credentials.');
     } finally {
       setLoading(false);
     }
@@ -96,9 +100,11 @@ export default function ParticipantPortal() {
                 <User className="absolute left-3.5 top-3 w-4 h-4 text-slate-500" />
                 <input
                   type="text"
-                  required
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    setErrorMsg('');
+                  }}
                   placeholder="e.g. Vinay Gangurde"
                   className="w-full bg-slate-950/80 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all"
                 />
@@ -113,9 +119,11 @@ export default function ParticipantPortal() {
                 <span className="absolute left-3.5 top-3 text-slate-500 text-sm">@</span>
                 <input
                   type="email"
-                  required
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setErrorMsg('');
+                  }}
                   placeholder="e.g. vinay.gangurde@example.com"
                   className="w-full bg-slate-950/80 border border-slate-800 rounded-xl pl-10 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all"
                 />

@@ -3,8 +3,10 @@ import path from 'path';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import { storage } from '../services/storageService.js';
-import { cleanString } from '../services/nameNormalizer.js';
+import { cleanString, calculateFuzzyScore } from '../services/nameNormalizer.js';
 import { MATCH_STATUS } from '../config/constants.js';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_key_smart_cert_allocation_portal_9988';
 
 function hashAccessCode(code = '') {
   const clean = code.replace(/[^A-Za-z0-9]/g, '').toUpperCase();
@@ -17,22 +19,22 @@ export const participantController = {
    */
   async verifyAccess(req, res) {
     try {
-      const { name, email, identifier, accessCode } = req.body;
+      const { name, email, identifier, accessCode } = req.body || {};
 
-      // Support either (name + email) OR (identifier + accessCode)
       const inputName = (name || identifier || '').trim();
       const inputEmail = (email || '').trim().toLowerCase();
       const inputCode = (accessCode || '').trim();
 
-      if (!inputName || (!inputEmail && !inputCode)) {
+      if (!inputName && !inputEmail && !inputCode) {
         return res.status(400).json({
           success: false,
-          error: 'Please provide both your Registered Full Name and Email Address.'
+          error: 'Please enter your Full Name, registered Email Address, or Access Code.'
         });
       }
 
       const cleanInputName = cleanString(inputName);
       const inputCodeHash = inputCode ? hashAccessCode(inputCode) : null;
+      const inputTokens = cleanInputName ? cleanInputName.split(/\s+/).filter(Boolean) : [];
 
       // Search across events to find matching participant and published certificate
       const allEvents = await storage.events.findAll();
@@ -48,39 +50,55 @@ export const participantController = {
           const participantCleanName = cleanString(p.participantName);
           const participantEmail = (p.email || '').toLowerCase().trim();
           const participantId = (p.participantId || '').toLowerCase().trim();
+          const partTokens = (p.normalizedName || participantCleanName).split(/\s+/).filter(Boolean);
+
+          const isEmailMatch = inputEmail ? (participantEmail === inputEmail) : false;
+          let isNameMatch = false;
+
+          if (cleanInputName) {
+            if (
+              participantCleanName === cleanInputName ||
+              p.normalizedName === cleanInputName ||
+              participantId === cleanInputName.toLowerCase()
+            ) {
+              isNameMatch = true;
+            } else if (inputTokens.length > 0 && partTokens.length > 0) {
+              const fuzzyScore = calculateFuzzyScore(inputTokens, partTokens);
+              if (fuzzyScore >= 0.8) {
+                isNameMatch = true;
+              }
+            }
+          }
 
           let isMatch = false;
 
-          // Primary credential check: Name + Email
-          if (inputEmail) {
-            const isNameMatch =
-              participantCleanName === cleanInputName ||
-              p.normalizedName === cleanInputName ||
-              participantId === cleanInputName.toLowerCase();
-            const isEmailMatch = participantEmail === inputEmail;
-
-            if (isNameMatch && isEmailMatch) {
+          // Credential Check 1: Access Code Match
+          if (inputCodeHash) {
+            const alloc = allocations.find(a => a.participantId === p.id);
+            if (alloc && alloc.accessCodeHash === inputCodeHash) {
+              // Access code is correct! If email or name was also supplied, verify consistency
+              if (inputEmail && !isEmailMatch) {
+                // Email supplied but doesn't match this access code
+                continue;
+              }
+              if (cleanInputName && !isNameMatch) {
+                // Name supplied but doesn't match this access code
+                continue;
+              }
               isMatch = true;
             }
-          } else if (inputCodeHash) {
-            // Secondary fallback: Identifier + Access Code
-            const isIdentMatch =
-              participantCleanName === cleanInputName ||
-              p.normalizedName === cleanInputName ||
-              participantEmail === cleanInputName.toLowerCase() ||
-              participantId === cleanInputName.toLowerCase();
+          }
 
-            if (isIdentMatch) {
-              const alloc = allocations.find(a => a.participantId === p.id);
-              if (alloc && alloc.accessCodeHash === inputCodeHash) {
-                isMatch = true;
-              }
+          // Credential Check 2: Name + Email Match (Standard Participant Lookup)
+          if (!isMatch && inputEmail && cleanInputName) {
+            if (isNameMatch && isEmailMatch) {
+              isMatch = true;
             }
           }
 
           if (isMatch) {
             const alloc = allocations.find(a => a.participantId === p.id);
-            // Must have a matched certificate and not be revoked
+            // Must have a valid matched certificate and not be revoked
             if (alloc && alloc.status === MATCH_STATUS.MATCHED && alloc.certificateId) {
               matchedParticipant = p;
               matchedEvent = ev;
@@ -96,7 +114,7 @@ export const participantController = {
       if (!matchedAllocation || !matchedParticipant || !matchedAllocation.certificateId) {
         return res.status(401).json({
           success: false,
-          error: 'No active certificate found matching the provided Name and Email address. Please double-check your event registration details.'
+          error: 'No active certificate found matching the provided credentials. Please double-check your Name, Email, or Access Code.'
         });
       }
 
@@ -108,7 +126,7 @@ export const participantController = {
           certificateId: matchedAllocation.certificateId,
           eventId: matchedEvent.id
         },
-        process.env.JWT_SECRET || 'fallback_secret',
+        JWT_SECRET,
         { expiresIn: '15m' }
       );
 
@@ -144,7 +162,7 @@ export const participantController = {
 
       let payload;
       try {
-        payload = jwt.verify(ticket, process.env.JWT_SECRET || 'fallback_secret');
+        payload = jwt.verify(ticket, JWT_SECRET);
       } catch (jwtErr) {
         return res.status(401).json({
           success: false,
@@ -206,7 +224,7 @@ export const participantController = {
 
       let payload;
       try {
-        payload = jwt.verify(ticket, process.env.JWT_SECRET || 'fallback_secret');
+        payload = jwt.verify(ticket, JWT_SECRET);
       } catch (jwtErr) {
         return res.status(401).json({
           success: false,

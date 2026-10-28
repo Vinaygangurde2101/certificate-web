@@ -1,26 +1,40 @@
 import React, { useState } from 'react';
-import { Lock, User, KeyRound, X, Sparkles } from 'lucide-react';
+import { Lock, User, KeyRound, X, Sparkles, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 import { useToast } from './Toast';
 
 export default function LoginModal({ isOpen, onClose, onLoginSuccess }) {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('Admin@SmartCert2026');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
   const toast = useToast();
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const cleanUser = username.trim();
+    const cleanPass = password.trim();
+
+    if (!cleanUser || !cleanPass) {
+      setErrorMsg('Please enter both username and password.');
+      return;
+    }
+
     setLoading(true);
+    setErrorMsg('');
+
     try {
-      await api.auth.login(username, password);
+      await api.auth.login(cleanUser, cleanPass);
       toast.success('Logged in successfully as Administrator!');
       onLoginSuccess();
       onClose();
     } catch (err) {
-      toast.error(err.message || 'Login failed. Please check credentials.');
+      const msg = err.message || 'Login failed. Please verify your credentials.';
+      setErrorMsg(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -29,6 +43,7 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }) {
   const handleFillDefaults = () => {
     setUsername('admin');
     setPassword('Admin@SmartCert2026');
+    setErrorMsg('');
     toast.info('Default credentials populated!');
   };
 
@@ -49,6 +64,7 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }) {
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
             className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
           >
@@ -57,6 +73,13 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }) {
         </div>
 
         <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+          {errorMsg && (
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+              <span className="leading-snug">{errorMsg}</span>
+            </div>
+          )}
+
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
               Admin Username
@@ -67,9 +90,13 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }) {
                 type="text"
                 required
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={(e) => {
+                  setUsername(e.target.value);
+                  setErrorMsg('');
+                }}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all"
                 placeholder="admin"
+                autoComplete="username"
               />
             </div>
           </div>
@@ -81,23 +108,37 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }) {
             <div className="relative">
               <KeyRound className="absolute left-3 top-3 w-4 h-4 text-slate-500" />
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 required
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-4 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all"
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setErrorMsg('');
+                }}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-10 py-2.5 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all"
                 placeholder="••••••••••••"
+                autoComplete="current-password"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-2.5 p-1 text-slate-400 hover:text-slate-200 transition-colors"
+                title={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
             </div>
           </div>
 
           {/* Quick autofill helper */}
           <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800/80 flex items-center justify-between text-xs">
-            <span className="text-slate-400">Default: <code className="text-brand-400">admin</code> / <code className="text-brand-400">Admin@SmartCert2026</code></span>
+            <span className="text-slate-400">
+              Default: <code className="text-brand-400">admin</code> / <code className="text-brand-400">Admin@SmartCert2026</code>
+            </span>
             <button
               type="button"
               onClick={handleFillDefaults}
-              className="text-brand-400 hover:text-brand-300 font-medium flex items-center gap-1"
+              className="text-brand-400 hover:text-brand-300 font-medium flex items-center gap-1 cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5" />
               Fill
@@ -108,7 +149,7 @@ export default function LoginModal({ isOpen, onClose, onLoginSuccess }) {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm shadow-lg shadow-brand-600/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-2.5 px-4 rounded-xl bg-brand-600 hover:bg-brand-500 text-white font-semibold text-sm shadow-lg shadow-brand-600/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
             >
               {loading ? (
                 <>

@@ -1,26 +1,67 @@
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+// Dynamic & robust API_BASE resolver for local dev and Vercel production deployments
+function resolveApiBase() {
+  const envUrl = (import.meta.env.VITE_API_URL || '').trim();
+  if (!envUrl) return '/api';
+  const clean = envUrl.replace(/\/+$/, '');
+  if (clean.startsWith('http') && !clean.endsWith('/api')) {
+    return `${clean}/api`;
+  }
+  return clean;
+}
+
+export const API_BASE = resolveApiBase();
 
 function getAuthHeader() {
   const token = localStorage.getItem('cert_admin_token');
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+/**
+ * Enhanced fetch wrapper that handles authentication expiration gracefully.
+ * Dispatches a 'cert_auth_expired' custom event on 401 responses.
+ */
+async function authFetch(url, options = {}) {
+  const res = await fetch(url, options);
+
+  // If unauthorized on any protected route, wipe stale token and alert app
+  if (res.status === 401 && !url.includes('/admin/login')) {
+    localStorage.removeItem('cert_admin_token');
+    window.dispatchEvent(
+      new CustomEvent('cert_auth_expired', {
+        detail: {
+          url,
+          message: 'Your administrator session has expired. Please sign in again.'
+        }
+      })
+    );
+  }
+
+  return res;
+}
+
 export const api = {
   auth: {
     async login(username, password) {
+      const cleanUser = (username || '').trim();
+      const cleanPass = (password || '').trim();
+
       const res = await fetch(`${API_BASE}/admin/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
+        body: JSON.stringify({ username: cleanUser, password: cleanPass })
       });
+
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Login failed');
+      if (!res.ok) {
+        throw new Error(data.error || 'Invalid credentials.');
+      }
+
       localStorage.setItem('cert_admin_token', data.token);
       return data;
     },
 
     async getMe() {
-      const res = await fetch(`${API_BASE}/admin/me`, {
+      const res = await authFetch(`${API_BASE}/admin/me`, {
         headers: { ...getAuthHeader() }
       });
       const data = await res.json();
@@ -30,6 +71,7 @@ export const api = {
 
     logout() {
       localStorage.removeItem('cert_admin_token');
+      window.dispatchEvent(new CustomEvent('cert_auth_logged_out'));
     },
 
     isAuthenticated() {
@@ -39,16 +81,16 @@ export const api = {
 
   events: {
     async getAll() {
-      const res = await fetch(`${API_BASE}/admin/events`, {
+      const res = await authFetch(`${API_BASE}/admin/events`, {
         headers: { ...getAuthHeader() }
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load events');
-      return data.events;
+      return data.events || [];
     },
 
     async getById(id) {
-      const res = await fetch(`${API_BASE}/admin/events/${id}`, {
+      const res = await authFetch(`${API_BASE}/admin/events/${id}`, {
         headers: { ...getAuthHeader() }
       });
       const data = await res.json();
@@ -57,7 +99,7 @@ export const api = {
     },
 
     async create(eventData) {
-      const res = await fetch(`${API_BASE}/admin/events`, {
+      const res = await authFetch(`${API_BASE}/admin/events`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -71,7 +113,7 @@ export const api = {
     },
 
     async delete(id) {
-      const res = await fetch(`${API_BASE}/admin/events/${id}`, {
+      const res = await authFetch(`${API_BASE}/admin/events/${id}`, {
         method: 'DELETE',
         headers: { ...getAuthHeader() }
       });
@@ -108,6 +150,16 @@ export const api = {
         xhr.onload = () => {
           try {
             const data = JSON.parse(xhr.responseText);
+            if (xhr.status === 401) {
+              localStorage.removeItem('cert_admin_token');
+              window.dispatchEvent(
+                new CustomEvent('cert_auth_expired', {
+                  detail: { message: 'Your session expired during upload. Please sign in again.' }
+                })
+              );
+              reject(new Error('Session expired. Please sign in again.'));
+              return;
+            }
             if (xhr.status >= 200 && xhr.status < 300) {
               resolve(data);
             } else {
@@ -126,7 +178,7 @@ export const api = {
 
   matching: {
     async manualMatch(allocationId, payload) {
-      const res = await fetch(`${API_BASE}/admin/allocations/${allocationId}`, {
+      const res = await authFetch(`${API_BASE}/admin/allocations/${allocationId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -140,7 +192,7 @@ export const api = {
     },
 
     async revoke(allocationId) {
-      const res = await fetch(`${API_BASE}/admin/allocations/${allocationId}/revoke`, {
+      const res = await authFetch(`${API_BASE}/admin/allocations/${allocationId}/revoke`, {
         method: 'POST',
         headers: { ...getAuthHeader() }
       });
@@ -150,7 +202,7 @@ export const api = {
     },
 
     async publish(eventId, { sendEmails = false, forcePublish = false } = {}) {
-      const res = await fetch(`${API_BASE}/admin/events/${eventId}/publish`, {
+      const res = await authFetch(`${API_BASE}/admin/events/${eventId}/publish`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -176,7 +228,6 @@ export const api = {
 
   participant: {
     async verify(credentials) {
-      // Support object { name, email } or legacy (identifier, accessCode)
       let body;
       if (typeof credentials === 'object' && credentials !== null) {
         body = credentials;
