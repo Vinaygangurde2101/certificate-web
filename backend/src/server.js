@@ -40,11 +40,25 @@ const upload = multer({
   }
 });
 
-// Initialize database / storage
-await initStorage();
+// Non-blocking storage boot initialization
+initStorage().catch((err) => {
+  console.warn('[Storage] Background storage init note:', err.message);
+});
+
+// Middleware to ensure storage is ready for requests
+app.use(async (req, res, next) => {
+  try {
+    await initStorage();
+  } catch (err) {
+    // Non-blocking fallback
+  }
+  next();
+});
+
+const router = express.Router();
 
 // Service Root & Health Check
-app.get('/', (req, res) => {
+router.get('/', (req, res) => {
   res.json({
     service: 'certificate-portal-backend',
     status: 'ok',
@@ -52,7 +66,7 @@ app.get('/', (req, res) => {
   });
 });
 
-app.get('/api/health', (req, res) => {
+router.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
@@ -61,17 +75,17 @@ app.get('/api/health', (req, res) => {
 });
 
 // ==================== ADMIN ROUTES ====================
-app.post('/api/admin/login', adminController.login);
-app.get('/api/admin/me', requireAdminAuth, adminController.me);
+router.post('/admin/login', adminController.login);
+router.get('/admin/me', requireAdminAuth, adminController.me);
 
-app.get('/api/admin/events', requireAdminAuth, adminController.getEvents);
-app.post('/api/admin/events', requireAdminAuth, adminController.createEvent);
-app.get('/api/admin/events/:id', requireAdminAuth, adminController.getEventById);
-app.delete('/api/admin/events/:id', requireAdminAuth, adminController.deleteEvent);
+router.get('/admin/events', requireAdminAuth, adminController.getEvents);
+router.post('/admin/events', requireAdminAuth, adminController.createEvent);
+router.get('/admin/events/:id', requireAdminAuth, adminController.getEventById);
+router.delete('/admin/events/:id', requireAdminAuth, adminController.deleteEvent);
 
 // Upload certificates ZIP and participant CSV/Excel
-app.post(
-  '/api/admin/events/:eventId/upload',
+router.post(
+  '/admin/events/:eventId/upload',
   requireAdminAuth,
   upload.fields([
     { name: 'zipFile', maxCount: 1 },
@@ -81,20 +95,24 @@ app.post(
 );
 
 // Manual matching override & certificate actions
-app.patch('/api/admin/allocations/:allocationId', requireAdminAuth, adminController.manualMatch);
-app.post('/api/admin/allocations/:allocationId/revoke', requireAdminAuth, adminController.revokeCertificate);
-app.post('/api/admin/events/:eventId/publish', requireAdminAuth, adminController.publishCertificates);
-app.get('/api/admin/certificates/:certId/preview', requireAdminAuth, adminController.previewCertificate);
+router.patch('/admin/allocations/:allocationId', requireAdminAuth, adminController.manualMatch);
+router.post('/admin/allocations/:allocationId/revoke', requireAdminAuth, adminController.revokeCertificate);
+router.post('/admin/events/:eventId/publish', requireAdminAuth, adminController.publishCertificates);
+router.get('/admin/certificates/:certId/preview', requireAdminAuth, adminController.previewCertificate);
 
 // ==================== PARTICIPANT PORTAL ROUTES ====================
-app.post('/api/participant/verify', portalVerifyLimiter, participantController.verifyAccess);
-app.get('/api/participant/download/:ticket', participantController.downloadCertificate);
-app.get('/api/participant/stream/:ticket', participantController.streamCertificate);
+router.post('/participant/verify', portalVerifyLimiter, participantController.verifyAccess);
+router.get('/participant/download/:ticket', participantController.downloadCertificate);
+router.get('/participant/stream/:ticket', participantController.streamCertificate);
 
 // ==================== DEMO / SAMPLE DATA ROUTES ====================
-app.get('/api/demo/sample-csv', demoController.getSampleCsv);
-app.get('/api/demo/sample-zip', demoController.getSampleZip);
-app.post('/api/demo/seed', demoController.seedDemo);
+router.get('/demo/sample-csv', demoController.getSampleCsv);
+router.get('/demo/sample-zip', demoController.getSampleZip);
+router.post('/demo/seed', demoController.seedDemo);
+
+// Mount router on both /api (standard) and / (if rewrites strip /api)
+app.use('/api', router);
+app.use('/', router);
 
 // Fallback error handler
 app.use((err, req, res, next) => {

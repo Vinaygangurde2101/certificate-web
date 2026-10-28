@@ -1,12 +1,20 @@
 import path from 'path';
+import os from 'os';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export const STORAGE_DIR = path.resolve(__dirname, '../../storage');
+// In serverless environments (Vercel, AWS Lambda), write to os.tmpdir() to avoid read-only filesystem errors (EROFS)
+const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+
+export const BASE_DIR = isServerless 
+  ? path.resolve(os.tmpdir(), 'cert_portal_runtime') 
+  : path.resolve(__dirname, '../../');
+
+export const STORAGE_DIR = path.resolve(BASE_DIR, 'storage');
 export const CERTIFICATES_DIR = path.resolve(STORAGE_DIR, 'certificates');
-export const DATA_DIR = path.resolve(__dirname, '../../.data');
+export const DATA_DIR = path.resolve(BASE_DIR, '.data');
 export const DB_FILE = path.resolve(DATA_DIR, 'db.json');
 
 export const MATCH_STATUS = {

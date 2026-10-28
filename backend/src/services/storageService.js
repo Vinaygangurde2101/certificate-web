@@ -11,9 +11,13 @@ import {
   AuditLogModel
 } from '../models/schemas.js';
 
-// Ensure data directory exists for offline fallback
-if (!fs.existsSync(DATA_DIR)) {
-  fs.mkdirSync(DATA_DIR, { recursive: true });
+// Ensure data directory exists for offline fallback (safely handle read-only filesystems in serverless)
+try {
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+} catch (fsErr) {
+  // Silent fallback in read-only serverless runtimes
 }
 
 let isMongoConnected = false;
@@ -78,6 +82,11 @@ async function syncLocalToMongoIfEmpty() {
 
 // Attempt Mongo connection safely
 export async function initStorage() {
+  if (mongoose.connection && mongoose.connection.readyState >= 1) {
+    isMongoConnected = true;
+    return;
+  }
+
   const uri = process.env.MONGODB_URI;
   if (!uri) {
     console.log('[Storage] No MONGODB_URI provided. Using persistent file DB:', DB_FILE);

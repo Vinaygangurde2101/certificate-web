@@ -17,6 +17,24 @@ function getAuthHeader() {
 }
 
 /**
+ * Safe JSON parser that prevents crashes when servers return non-JSON responses
+ * (such as Vercel edge/gateway HTML or plain-text "A server error has occurred").
+ */
+async function safeParseJson(res) {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    // Strip HTML tags if present (e.g. Vercel error pages)
+    const clean = text.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim();
+    return {
+      error: clean || `Server returned HTTP ${res.status}: ${res.statusText}`
+    };
+  }
+}
+
+/**
  * Enhanced fetch wrapper that handles authentication expiration gracefully.
  * Dispatches a 'cert_auth_expired' custom event on 401 responses.
  */
@@ -51,9 +69,9 @@ export const api = {
         body: JSON.stringify({ username: cleanUser, password: cleanPass })
       });
 
-      const data = await res.json();
+      const data = await safeParseJson(res);
       if (!res.ok) {
-        throw new Error(data.error || 'Invalid credentials.');
+        throw new Error(data.error || `Login failed (HTTP ${res.status})`);
       }
 
       localStorage.setItem('cert_admin_token', data.token);
@@ -64,7 +82,7 @@ export const api = {
       const res = await authFetch(`${API_BASE}/admin/me`, {
         headers: { ...getAuthHeader() }
       });
-      const data = await res.json();
+      const data = await safeParseJson(res);
       if (!res.ok) throw new Error(data.error || 'Failed to verify session');
       return data;
     },
@@ -84,7 +102,7 @@ export const api = {
       const res = await authFetch(`${API_BASE}/admin/events`, {
         headers: { ...getAuthHeader() }
       });
-      const data = await res.json();
+      const data = await safeParseJson(res);
       if (!res.ok) throw new Error(data.error || 'Failed to load events');
       return data.events || [];
     },
@@ -93,7 +111,7 @@ export const api = {
       const res = await authFetch(`${API_BASE}/admin/events/${id}`, {
         headers: { ...getAuthHeader() }
       });
-      const data = await res.json();
+      const data = await safeParseJson(res);
       if (!res.ok) throw new Error(data.error || 'Failed to load event details');
       return data;
     },
@@ -107,7 +125,7 @@ export const api = {
         },
         body: JSON.stringify(eventData)
       });
-      const data = await res.json();
+      const data = await safeParseJson(res);
       if (!res.ok) throw new Error(data.error || 'Failed to create event');
       return data.event;
     },
@@ -117,7 +135,7 @@ export const api = {
         method: 'DELETE',
         headers: { ...getAuthHeader() }
       });
-      const data = await res.json();
+      const data = await safeParseJson(res);
       if (!res.ok) throw new Error(data.error || 'Failed to delete event');
       return data;
     }
@@ -148,25 +166,28 @@ export const api = {
         }
 
         xhr.onload = () => {
+          let data;
           try {
-            const data = JSON.parse(xhr.responseText);
-            if (xhr.status === 401) {
-              localStorage.removeItem('cert_admin_token');
-              window.dispatchEvent(
-                new CustomEvent('cert_auth_expired', {
-                  detail: { message: 'Your session expired during upload. Please sign in again.' }
-                })
-              );
-              reject(new Error('Session expired. Please sign in again.'));
-              return;
-            }
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve(data);
-            } else {
-              reject(new Error(data.error || 'Upload processing failed'));
-            }
-          } catch (e) {
-            reject(new Error('Invalid server response'));
+            data = JSON.parse(xhr.responseText);
+          } catch {
+            data = { error: xhr.responseText || 'Upload failed' };
+          }
+
+          if (xhr.status === 401) {
+            localStorage.removeItem('cert_admin_token');
+            window.dispatchEvent(
+              new CustomEvent('cert_auth_expired', {
+                detail: { message: 'Your session expired during upload. Please sign in again.' }
+              })
+            );
+            reject(new Error('Session expired. Please sign in again.'));
+            return;
+          }
+
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(data);
+          } else {
+            reject(new Error(data.error || `Upload processing failed (HTTP ${xhr.status})`));
           }
         };
 
@@ -186,7 +207,7 @@ export const api = {
         },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await safeParseJson(res);
       if (!res.ok) throw new Error(data.error || 'Failed to update matching allocation');
       return data.allocation;
     },
@@ -196,7 +217,7 @@ export const api = {
         method: 'POST',
         headers: { ...getAuthHeader() }
       });
-      const data = await res.json();
+      const data = await safeParseJson(res);
       if (!res.ok) throw new Error(data.error || 'Failed to revoke certificate');
       return data.allocation;
     },
@@ -210,7 +231,7 @@ export const api = {
         },
         body: JSON.stringify({ sendEmails, forcePublish })
       });
-      const data = await res.json();
+      const data = await safeParseJson(res);
       if (!res.ok) {
         const error = new Error(data.error || 'Publish failed');
         error.pendingReviewsCount = data.pendingReviewsCount;
@@ -240,7 +261,7 @@ export const api = {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      const data = await res.json();
+      const data = await safeParseJson(res);
       if (!res.ok) throw new Error(data.error || 'Invalid credentials or certificate not found');
       return data;
     },
@@ -259,7 +280,7 @@ export const api = {
       const res = await fetch(`${API_BASE}/demo/seed`, {
         method: 'POST'
       });
-      const data = await res.json();
+      const data = await safeParseJson(res);
       if (!res.ok) throw new Error(data.error || 'Failed to seed demo data');
       return data;
     },
