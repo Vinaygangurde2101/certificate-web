@@ -43,7 +43,7 @@ export async function sendAccessCodeEmail({ to, participantName, eventName, acce
         Click the link below and enter your access code to view and download your verified certificate:
       </p>
       <div style="text-align: center; margin: 24px 0;">
-        <a href="${portalUrl || 'http://localhost:5173/portal'}" style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 28px; font-size: 16px; font-weight: 600; border-radius: 8px;">
+        <a href="${portalUrl || (process.env.FRONTEND_URL ? `${process.env.FRONTEND_URL.replace(/\/+$/, '')}/portal` : (process.env.CLIENT_URL ? `${process.env.CLIENT_URL.replace(/\/+$/, '')}/portal` : 'http://localhost:5173/portal'))}" style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 28px; font-size: 16px; font-weight: 600; border-radius: 8px;">
           Access Certificate Portal →
         </a>
       </div>

@@ -38,7 +38,15 @@ const upload = multer({
 // Initialize database / storage
 await initStorage();
 
-// Health Check
+// Service Root & Health Check
+app.get('/', (req, res) => {
+  res.json({
+    service: 'certificate-portal-backend',
+    status: 'ok',
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',

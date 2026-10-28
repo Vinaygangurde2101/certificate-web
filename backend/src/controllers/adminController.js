@@ -465,12 +465,13 @@ export const adminController = {
 
           const participant = participants.find(p => p.id === alloc.participantId);
           if (participant && sendEmails) {
+            const frontendBase = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'http://localhost:5173';
             const emailResult = await sendAccessCodeEmail({
               to: participant.email,
               participantName: participant.participantName,
               eventName: event.name,
               accessCode: plainCode,
-              portalUrl: `${process.env.CLIENT_URL || 'http://localhost:5173'}/portal`
+              portalUrl: `${frontendBase.replace(/\/+$/, '')}/portal`
             });
             emailDeliveries.push({
               email: participant.email,
